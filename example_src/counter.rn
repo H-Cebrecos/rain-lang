@@ -1,0 +1,36 @@
+spec counter [start: integer = 0, end_val: integer = 200, duration: integer]
+{
+        clk    : -> logic,
+        reset  : -> logic
+        signal : <- logic[32]
+        count  : <- logic [18 : 0]                   --[log(end)-1 : 0],
+}
+impl counter
+{
+        -- very prototypy
+        -- maybe counters are a widget?
+        cnt : integer = 0;
+
+        comb -- how does this behave?
+        {      
+                count = logic(cnt);
+        }
+
+        async @ reset -- I don't really like that the async block is outside the sync one but other solutions I came up with require a lot of indenting.
+        {
+                cnt = start;
+        } 
+        sync rising clk -- Do a revision but this is better.
+        {
+
+               
+                if count < end {
+                        cnt = count + 1;
+                }
+                else
+                {
+                        cnt = start;
+                }
+               
+        }  
+}

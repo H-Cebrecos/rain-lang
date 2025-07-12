@@ -1,0 +1,15 @@
+spec uart_rx [
+        G_DATA_BITS : natural = 8
+        G_PARITY    : parity_none = NONE
+        G_STOP_BITS : natural_range_1_to_2 
+]
+{
+        clk :-> logic
+        rst :-> logic
+        rx  :-> logic
+        
+        data  : <- logic[8]
+        valid : <- logic
+        frame_err : <- logic
+        parity_err : <- logic
+}

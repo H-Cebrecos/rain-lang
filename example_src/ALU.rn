@@ -1,0 +1,29 @@
+spec ALU
+{
+        op_sel    : -> ALU_OP_t
+        
+        src1_sel  : -> ALU_SRC1_t
+        reg1, pc  : -> logic[32]
+
+        src2_sel  : -> ALU_SRC2_t
+        reg2, imm : -> logic[32]
+
+        cmp_mode  : -> CMP_t
+
+        shft_type : -> SHFT_TYPE_t
+        shft_dir  : -> SHFT_DIR_t
+
+        alu_rslt  : <- logic[32]
+        cmp_rslt  : <- logic
+}
+imp ALU
+{
+        signal op1, op2 : logic[32];
+        signal cmp : logic;
+
+        op1 <= op_sel = ALU_BRANCH ? reg1 : pc;
+        op2 <= op_sel = ALU_BRANCH ? reg2 : imm;
+
+        
+        
+}

@@ -1,0 +1,40 @@
+spec CRC16 
+{
+        clk   : -> logic -- change to clk
+        rst   : -> logic -- change to rst
+
+        data  : -> logic[8]
+        valid : -> logic
+
+        crc   : <- logic[16]
+}
+impl CRC16
+{
+      
+      signal partial_1  : comb logic[16];
+      signal partial_2  : comb logic[16];
+      signal partial_3  : comb logic[16];
+      signal partial_4  : comb logic[16];
+      signal reg        : sync logic[16];
+
+      comb 
+      {
+        --sverilog style syntax. 
+        partial_1 <= {{crc_reg[7..0], crc_reg[15..8]}} xor {8{'0'}, data}; 
+        partial_2 <= partial_1 xor { 12{'0'}, partial_1[7:4]};
+        partial_3 <= partial_2 xor {partial_2[3:0], 12{'0'}};
+        partial_4 <= partial_3 xor {3{'0'}, partial_3[7:0], 5{'0'}};
+
+        crc <= partial_4;
+      }
+        
+      sync rising clk
+      {
+        sync rst{ crc_reg[_] <= '0'; }
+
+        if valid
+        {
+           crc_reg <= partial_4;
+        }
+      }
+}

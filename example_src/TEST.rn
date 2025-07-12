@@ -1,0 +1,1 @@
+signal test_signal : sync logic[15 : 9]

@@ -1,0 +1,672 @@
+= Rain : Language documentation
+:reproducible:
+:revnumber: 0.1
+:icons: font
+:title-page:
+:toc:
+:title-logo-image: image::rain.png[top=15%,align=center,pdfwidth=5in]
+
+
+//TODO: more levels to the TOC.
+//TODO: redo the logo, it is warped.
+== Redesign
+
+There are way better languages for softdev than for FPGAs, so another programming language provides nothing, I'm going to mutate this into a HDL.
+transpiled to VHDL, maybe verilog in the future. 
+
+I need to remove all the stuff related to software and rethink most of the stuff for hardware, luckily I don't need to change much and most of the
+thinking is shared.
+
+The core idea of the language for now is to reduce typing needed, be more clear and require less extra knowledge, but mostly to provide "widgets"
+for very common constructs, like CDCs async assert sync de-assert and also to receive as much help from a type system as possible, for example to 
+reduce combinatorial loops and things like that.
+
+Idea for HDL 
+widget for asynchronoulsy asserted, sychronously desasserted after N cycles signals.
+
+module and test files clearly separate synthsizable code from simulation code.
+
+use type system to avoid combinatorial loops (signal propagation trees)
+
+widgets:
+CDCs
+Async assert sync deassert syncro.
+delay
+signal to pulse (signals that remain asserted for various clock cycles are asserted only during one clock cycle. )
+	
+	bassically this: 
+	    process(clk)
+    	begin
+        	if rising_edge(clk) then
+            		out_pulse <= '1' when (in_signal = '1' and in_prev = '0') else '0';
+           		in_prev <= in_signal;
+        	end if;
+    	end process;
+
+counters: the correct structure is:
+	
+	P_cntr: process (clk, rst) is
+    	begin
+        	if rising_edge(clk) then
+        	    if <rst logic> then
+        	        cntr <= 0;
+        	    elsif  <clk en logic> then
+        	        if  cntr = CNTR_MAX-1 then
+        	            cntr <= 0;
+        	        else
+        	            cntr <= cntr + 1;
+        	        end if;
+        	    end if;
+        	end if;
+    	end process;
+
+of course rst and clk en logic should be combinatorial or better for readability, single signals.
+
+shift registers, whith full, last, empty signals and selectable order, MSF or LSF etc.
+
+subcomponent scopes for documentation purposes only ej: sampling_stage:{<stuff>}, it is then transformed into comments indicating the begin end.
+
+maybe a generalize way for widget? with textual substitution and a list of necessary declarations??
+
+you can use the output of widgets without having to declare an intermediary signal, if you use a counter for example, the name of the output
+can be the same as the counter or something. for example a counter may have two implicit outputs, the count and a rollover signal, if you don't
+use one then it is not declared or its respective logic put on the output, kinda incompatible with the thing above
+.
+
+instantation mapping: instead of instantiating a module and declaring all inputs and outputs, as most connections are between modules you end up
+having to declare a lot of signals just to pass inputs to outputs and declare the information twice once at the output side and another in the input
+instead you instantiate modules and evaluate generics there, then the mapping is done with "arrows" modules ios at both sides and the arrow indicates the direction.
+ej:
+
+	module 1: counter (in clk, in reset, out count) moudule 2: comparator and trigger (in count, out reset, out trig)
+
+	mod1 : counter [generics]
+	mod2 : comp_trig [generics]
+
+	clk_sig    -> mod1.clk
+	mod2.reset -> mod1.reset
+	mod2.count <- mod1.count
+	mod2.trig  -> trig_singal
+
+the direction and order of the modules can be whatever is more clear, the only thing is that outputs always point to inputs.
+this will be synthesized by creating intermediate signals when appropiate and creating the instatations for each of the modules
+and filling the port maps with the information gotten from the mappings.
+
+I think the way to implement this is that module instance outputs should generate signals (<instance name>_<output name>) then the mapping feature is just a result of
+the combination of signal asignment and this signal generation feature, that way the same logic used to detect multiple assigments resolves the multiple mappings to an inport port,
+inout signals require a lot of thinking, I may even remove them. asigning to a instance input instead of a signal is reflected in the port map instead of in generated code.
+
+
+
+Allow for multibit logic to be declared by size and asumes range [size -1 : 0]
+
+== Stage 1
+The first goal is to be able to generate empty modules, with its interface and instantiation template.
+This will require defining the interface syntax as well as the first simple types that correspond to logic signals.
+
+Done, for now only logic type of depth 1 is supported (and badly)
+
+== Stage 2
+[checkboxes]
+* [x] Multi bit logic
+* [ ] constant (simple literals) and signal declaration
+	divide simple signals into combinatorial and synchro signals, this will be checked later(tm).
+	make them optional modifiers of logic, only available in declarations for checking. (comb, sync)
+* [ ] simple modularity (no package style definitions) module instantiation (no mapping.)
+
+== Stage 3
+code cleanup/refactor and proper errors for everything
+
+== Planning
+modules{
+	name
+	spec{
+		Option(generics[]){
+			name
+			type
+			Option(default)
+		}
+		io_signals[]{
+			name
+			type
+			direction
+		}
+	}
+	declarations{
+		Option(Constants[]){
+			name
+			type
+			value
+		}
+		Signals (declared and automatic)
+
+	}
+	rtl
+}
+
+risign and falling is a porperty of the clock domain instead of being written?.
+
+
+All reset signals should be passed through the Asynchronously asserted, synchronously deasserted multi flip-flop synchronizer. Research the sintax, CD inference and how to control #stages and specially where to place them (probably one for each clock domain maybe provide fine control though "#pramga reset boundary" or something).
+
+== Types
+std_logic and std_logic_vector should be represented by the same type (logic). clocks should be their own type.
+maybe some kind of syntax to divide logic into sync and async variants of the type? that way the inference can decide if it registers stuff?
+
+        latch ?
+        clock 
+        reset ?
+	logic
+        logic [8:0]
+
+	logic has optional comb and sync modifiers.
+
+        < / <-
+        > / ->
+        x / <> for inout.
+
+== Identifiers
+names that are keywords in C are not allowed
+as identifiers. Why? because if a variable has external linkage it can be linked with code generated by other languages, in rain you would see a different name for the variable that what appears in the object, you could forbid those names only in symbols with external linkage but that would be confusing for the small benefit of adding 3 or 4 barely meaningful names to the identifiers. This goes strongly against the
+philosophy or Rain of being simple and explicit.
+
+== Variables and Constants
+research constexpr and why it exists in C++, basically I think I want to perform as much constant folding as possible.
+
+Probably disallow declaring variables in file scope and force a global or external scope to be
+explicit about symbol visibility when linking,
+something like,but I don't really like this syntax.
+
+___
+	global
+	{
+		var foo: type;
+	}
+
+
+possible names,
+where can they be declared,
+linking visibility,
+scopes,
+how types work,
+...
+
+
+== Modules
+=== TODO
+How to solve the problem of "utility libraries" where they are used in various files from multiple levels of the tree.
+Once a file has been imported, it is already being compiled and added to the syntax tables, so keep track of already processed modules and you don't search for them in the same level as the file.
+This utility libraries are placed in their highest position in the tree, this makes the most sense, bassically
+there are long branches that skip some levels.
+
+How to import modules with *use* also consider allowing a semicolon after a use declaration.
+
+
+=== Introduction
+
+A module in Rain, as in most HDL languages is ...
+modules have an interface which is what the users of the module see and a private implementation which is usually best kept hidden, so the users don't have the temptation to use internal details of the implementation, this allows to change the
+implementation for a better one in the future as long as the interface is respected. does this really apply to HDLs?
+
+the interface, which here recieves the name of specification (spec).
+
+
+.example_module/example_module.rn
+----
+	spec example_module
+	{
+		signal definitions...
+	}
+	impl example_module
+	{
+		implementation...
+	}
+----
+
+with generics.
+----
+	spec example_module [width: 32, size: 8]
+	{
+		signal definitions...
+	}
+	impl example_module
+	{
+		implementation...
+	}
+----
+
+
+use (refine this.) name is optional if omitted it generates a name like "example_module_instance[_n]"
+
+----
+        use example_module
+        ...
+        example_module name [width:64,size:4] 
+        (
+                ...
+        )
+----
+
+=== Details or whatever
+what exactly can go in each file, valid module names etc etc
+no keyword as a module name  as none of the keywords make for a good module name.
+
+=== Namespacing
+How does it work like in Rain??
+
+=== Generated Code
+When transformed into VHDL entities, Rain modules generate the corresponding .vhd file with the entity and architecture declarations as well as a .vho file with the instantiation templates.
+
+
+____
+        entity test is
+        generic
+        (
+        	-- contents
+        );
+        port
+        (
+        	-- contents
+        );
+        end test;
+
+        architecture implementation of test is
+        	-- declarations
+        begin
+        	-- contents
+        end implementation;
+____
+
+the instantiation templates:
+____
+        -- Begin Component Declaration
+        component test
+        generic
+        (
+        	-- contents
+        );
+        port
+        (
+        	-- contents
+        );
+        end component;
+        -- End Component Declaration
+
+        -- Begin Instantiation Template
+        instance_name : test
+        generic map
+        (
+        	-- contents
+        );
+        port map
+        (
+        	-- contents
+        );
+        -- End Instantiation Template
+____
+
+
+[%always]
+<<<
+
+== Files
+a main file and mod files.
+files must start with mod or use or ...
+main file:
+	use <Module name>
+	...
+
+	<declarations>
+	main
+	{
+
+	}
+No modules declared in main file, wtf is that.
+one module one file.
+
+== Functions
+
+Functions are declared with the *fn* keyword followed by an identifier for that function. Theres an optional parameter list between parenthesis and an optional return type. The implementation of the function can be provided when first declaring the function or later.
+
+Parameters have a type and a mode like in Ada, the mode specifies whether they are read-only, write-only (returned values) or read-write (for structures that must be updated). the modes are in, out and modify.
+The modes are specified by zones in the parameter list divided by *|*, parameters are of mode in until the first *|* after that they are of out mode, and finally after a second *|* they are of modify mode.
+
+Parameters are optional before a *|*, so if you only need out parameters it is valid to write fn foo(|bar : type).
+
+you can always write an optional comma after the last parameter if you want.
+	
+	idea 1: fn example_fn (in zone|out zone| modify zone) -> ret_type {}
+		if a fn doesn't use one of the zones the zone is empty:
+			fn no_in_no_mod (| param1) -> {}
+			fn no_out (param_1 || param_2) -> {}
+			fn no_mod (param1, param2 | param3) {}
+
+
+=== why modes?
+Explicit references and mutable references If I decide in that approach may invalidate the concept of modify parameters, and complex
+return types may make out parameters obsolete, think hard about this, one think about out parameters is that the responsibility of
+allocating the object is on the caller, thus making automatic detection of un-freed objects easier, idk memory management and stack vs heap
+memory is one of the hardest aspects of designing a language and although it should come early to shape the language I will postpone it until the language is more language.
+
+actual rules:
+always have parenthesis? -> yes, makes it clear that it is a function call in calls, for simplicity it should be the same in declarations.
+
+	Func := fn and identifier ( <arg list> ) < -> type> <{statement|expresion}>
+	the arg list may be empty
+	the arg list is of "ident : types" separated by "," or "|" cant write ",|"
+	you may leave an extra comma at the end.
+
+	the gramar is:
+		FUNC -> fn IDENT ( A
+		A    -> | / C|A / C) / C,) / )
+		C    -> IDENT : IDENT, C / IDENT : IDENT
+
+
+
+=== Scratch pad
+Shi Language
+
+Modularity:
+
+-what is a module? 
+	a self contained unit of code that encapsulates (related) functionalities.
+	modules have an interface and a private implementation.
+	they also help with namespacing.
+
+-what do they look like in C?
+	modules don't exist in C, you can declare specifications in .s files and 
+	you can import any file into another file.
+
+	I think the ability to provide de interface separate from the code is nice, but
+	it can be bothersome for small projects or internal functionality so the ability
+	to write both in the same file would be nice, while still presenving the benefits
+	of abstraction provided by interfaces and separate compilations.
+
+-what do I do about directories?
+	if specification and declaration are the same file they are optional.
+	if they are separate they need to be under a directory of the same name.
+
+I think that modules should also be clear about which dependencies they have.
+	yes they are declared at the start of the module, importing that module also imports all of its imported modules,
+	name conflicts are resolved by specifiying as much name-path as needed.
+
+-can you declare multiple modules in the same file?
+	Yes?, although it doesn't seem like a clean approach at first I think the ability to write everything into 
+	a single file is nice while still benfiting from a modular writing style. yes as submodules of a single module?. 
+
+Modules are very explicit in their interface, unlike rust, it' more like Ada (and C) whatever is in the interface is public, and things in the 'body'(implementation) are private.
+
+-Is everything a module?
+	No, main file isn't.
+
+-sumbmodules?
+
+
+	lexer done.
+		mod <name> spec
+		{
+		
+		}
+
+		mod <name> impl 
+		{
+		
+		}
+
+		//shorthand sintax
+		mod <name>
+		{
+		}
+		{
+		}
+
+
+maybe a module with only an implementation for simple modularity without defining interfaces, or automatically ifered interfaces?
+
+
+	mod <name> 
+	{
+		@all
+	}
+
+
+No keywords as module names.
+//this may be in the same file or in different files. the file must be only a mod block.
+//both interface and impl must be in the same directory.
+
+
+.
+> 
+used as import <name>.
+
+each interface generates a .h file, each impl generates a .c file.
+
+
+
+
+
+
+
+
+-Logging:
+	inspired by dfmt in rust.
+
+
+i think the HAL should be divided into features that may or may not be available, expect nothing of the device, you download the HAL implementation for your device/board (think about the difference too)
+and it lists the implemented features, libraries should list the dependance on features so you can check if a library would be supported, HAL elements may depend on other HAL elements??
+
+
+
+
+previous ideas:
+If I were to make a language specifically and only designed for embedded, mainly bare metal development, what should the language provide? why would people want to invest time to learn it?
+
+features:
+
+-procedures with in, out & modify params
+	
+	idea 1: fn example_fn (in zone|out zone| modify zone) -> ret_type {}
+		if a fn doesn't use one of the zones the zone is empty:
+			fn no_in_no_mod (| param1) -> {}
+			fn no_out (param_1 || param_2) -> {}
+			fn no_mod (param1, param2 | param3) {}
+
+rember default values for params.
+-HALs inegrated in the language and standarized by it, basically consistent HALs and ease of creating them.
+-Build system integrated in the language, maybe even more than cargo.
+-Extreamly clean interop with C.
+-modular programming done cleanly.
+-zero/minimal runtime.
+-think a lot about memory management.
+-interrupt handling in the language.
+-detect and warn about recursion.
+-real time features with deterministic timing.
+
+-inline assembly extreamly cleanly.
+	idea 1: assembly as a subroutine.
+		asm example_Asm_subroutine (select: r32, exp: r12 | foo: sp[2], bar: mem_03202303 | config: r1, result: acc) (clobered registers) {
+			mov r2, r32 ...
+		}
+		instead of parameters you have registers/addresses, when you call the asm subroutine
+		the registers are populated with the in values, before return, the out real params are populated with
+		the correct values specified.
+
+-a way to register custom instructions to use in the asm subroutines.
+
+-a way to specify architectural details such as stack size/depth to the compiler so it can check function call depth at compile time.
+-compile time checks.
+-suport for runtime checks.
+-fixed point arithmetic.
+-time constructs, delays etc.
+-tasking. (coop?)
+-linker integration with liker scripts.
+-debugging support.
+-power comsumption control? idle loops etc
+-integrated test.
+-native state machine constructs
+-maybe maybe maybe. some kind of compile time heap analysis, if it's able to resolve the lifetimes and mutual exclusivity of objects
+the it can preallocate all the space necessaty and assign addresses to objects so that they don't need deallocation because
+space is naturally replaced as the compiler had detected no futher use. I'ts kinda like the borrow checker but probably imposible.
+-zero eviroment variables and wierd shit like that.
+
+
+declaring variables
+
+const  <ident> : <type> =  expr;
+mut
+
+not modifying a mut variable counts as a error suggesting to change to const.
+
+
+types:
+?? prob inspired by Ada.
+
+
+	if <condition> then {
+
+	} elsif <condition> then {
+
+	} else {
+
+	}
+
+
+
+IMPROVE readability of this syntax, I don't like it much. also reserving wait and gate as keywords may be a bad Idea.
+this may be a bad idea, don't waste time here for now.
+it seems that it is quite common to have the interrupt controller or some condition enable some behaviour, this basically means that you have to declare the boolean,
+don't forget to initialize it, and do an if (boolean) { boolean = false; bla bla}, this is super similar to the concept of a semaphore, consider unifiying this under the concept of a gate.
+
+	perform_measurement : gate;
+	some code
+	{
+		...
+		perform_measurement.open();
+		...
+	}
+	some other code
+	{
+		wait perform_measurement
+		{
+			...
+		}
+	}
+
+the compiler detects if it needs to be a full semaphore in what ever asyncronous runtime it's running or just a boolean with an if.
+(this way you can port code to single-threaded or multi-threaded proccessors without changes to the code.)
+
+
+        spec counter [start: integer = 0, end: integer = 200]
+        {
+                 clk    : > clock
+                 reset  : > logic
+
+                 count  : < logic [log(end)-1 : 0]
+        }
+
+        impl counter
+        {
+                -- very prototypy
+                -- maybe counters are a widget?
+                cnt : integer = 0;
+
+                comb -- how does this behave?
+                {      
+                        count = logic(cnt);
+                }
+
+                seq   -- I don't like this syntax.
+                {
+
+                        async @ reset
+                        {
+                                cnt = start;
+                        } 
+                        sync to rising clk
+                        {
+                                if count < end {
+                                        cnt = count + 1;
+                                }
+                                else
+                                {
+                                        cnt = start;
+                                }
+                        }
+                }      
+        }
+
+stuff can only be synchronous to one clock signal.
+think about async blocks? as many as you want?? what about conflicts?. only one with multiple sensitivites? what about behaviour with multibit signals or active low etc.
+
+For now I think combinational blocks should be implemented as concurrent asigments as much as possible (not to hard if its just some asigments or if else stuff) else they go inside
+a process, I think blocks should be able to split into concurrent and process but never generate more than one process. also add a way to add names to the process and sections.
+
+alternative form
+
+        sync rising clk -- Do a revision but this is better.
+        {
+                async @ reset
+                {
+                        cnt = start;
+                } 
+               
+                if count < end {
+                        cnt = count + 1;
+                }
+                else
+                {
+                        cnt = start;
+                }
+               
+        }    
+sdfg
+
+
+== Impl blocks
+inside impl block there can be:
+
+* signal declarations
+* comb blocks
+* sync blocks
+* module instantations
+* port mappings
+
+all of them are statements with a predetermined structure so they don't need semicolons at the end, it is clear what the
+last token will be. Semicolons terminate expressions and other ambiguous syntax. 
+=== signal declarations
+
+for now only logic signals, expand to unsigned and maybe integer too.
+
+	signal <name> : (comb | sync) logic[<range>];
+
+signal declarations may appear anywhere in the impl block, not only at the start.
+in the future add asigment at declaration inside the comb and sync blocks.
+signal with comb attribute can only be assigned inside comb blocks, same for sync.
+think about if you can ommit the attribute and what the result will be, a comb by default
+or the attribute gets infered by the block in which the signal is assigned.
+obviusly only one asigment and declaration for each signal.
+
+=== comb blocks
+
+=== sync blocks
+
+=== module instantiation
+you must import the module with the use keyword.
+
+	use <module name>
+	...	
+	mod <instance name> : <module name> [<generics>]
+
+=== port mappings
+Port mappings can be in any direction, but outputs must point to inputs.
+mappings can only be done between module instance IOs and signals, IOs or other instance IOs 
+
+	module 1: counter (in clk, in reset, out count) moudule 2: comparator and trigger (in count, out reset, out trig)
+
+	mod mod1 : counter [generics]
+	mod mod2 : comp_trig [generics]
+
+	clk_sig    -> mod1.clk
+	mod2.reset -> mod1.reset
+	mod2.count <- mod1.count
+	mod2.trig  -> trig_singal
